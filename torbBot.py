@@ -194,13 +194,13 @@ async def invite(ctx, user):
 async def my_group(ctx):
 	'''Prints the group you are in
 	Usage: &group'''
-	ctx.send(gen_my_group(ctx))
+	await ctx.send(gen_my_group(ctx))
 
 @bot.command()
 async def list(ctx):
 	'''Lists the group currently in the queue
 	Usage: &list'''
-	ctx.send(gen_my_group(ctx))
+	await ctx.send(gen_my_group(ctx))
 	c.execute('''select group_name, player_nick from queue where active = 1 order by join_date asc''')
 	queue_list = c.fetchall()
 	if queue_list is not None:
