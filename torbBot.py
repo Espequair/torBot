@@ -60,7 +60,7 @@ async def stats(ctx, ac, max_hp, level, *, class_desc):
 	await ctx.send(f"Very well {get_common_name(ctx)}, you now have the stats\n**AC: {ac}\nHP: {max_hp}\nLevel: {level}\nClass: {class_desc}**")
 	await asyncio.sleep(1)
 
-@bot.command()
+@bot.command(alias = ["gi"])
 async def group_info(ctx, team = None):
 	'''Get more info about a group
 	Usage: &group_info [group]
@@ -78,17 +78,17 @@ async def group_info(ctx, team = None):
 	c.execute("select player_mention, player_nick from queue where active = 1 and group_name = ?",(team,))
 	players = c.fetchall()
 	if players == []:
-		await ctx.send("I'm sorry {get_common_name(ctx)}, there doesn't seem to be a team by the name of `{team}` in the queue")
+		await ctx.send(f"I'm sorry {get_common_name(ctx)}, there doesn't seem to be a team by the name of `{team}` in the queue")
 		await asyncio.sleep(1)
 		return None
-	ctx.send("The members of group {team} are:")
-	for players in players:
-		c.execute("select * from stats where player_mention = ?",(player[0]))
+	await ctx.send(f"The members of group {team} are:")
+	for player in players:
+		c.execute("select * from stats where player_mention = ?",(player[0],))
 		stats = c.fetchone()
 		if stats is None:
 			await ctx.send(f"{player[1]} hasn't told me their stats yet")
 		else:
-			await ctx.send(f"{player[1]} is a level {a[3]} {a[4]}\nThey have an AC of {a[1]} and their max HP is {a[1]}")
+			await ctx.send(f"{player[1]} is a level {stats[3]} {stats[4]}\nThey have an AC of {stats[1]} and their max HP is {stats[1]}")
 		await asyncio.sleep(1)
 
 @bot.command()
@@ -195,13 +195,13 @@ async def invite(ctx, user):
 async def my_group(ctx):
 	'''Prints the group you are in
 	Usage: &group'''
-	await my_group(ctx)
+	my_group(ctx)
 
 @bot.command()
 async def list(ctx):
 	'''Lists the group currently in the queue
 	Usage: &list'''
-	await my_group(ctx)
+	my_group(ctx)
 	c.execute('''select group_name, player_nick from queue where active = 1 order by join_date asc group by group_name''')
 	queue_list = c.fetchall()
 	if queue_list is not None:
