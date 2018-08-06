@@ -162,7 +162,7 @@ async def desist(ctx, *arg):
 	if len(arg) == 0:
 		c.execute('''update queue set active = 0, end_date = ? where (active = 1) and (player_mention = ?)''',(ctx.message.created_at, ctx.message.author.mention))
 		conn.commit()
-		await ctx.send(f"{get_common_name(ctx)}, I have successfully desisted you from the Arena, I'll see you later")
+		await ctx.send(f"{get_common_name(ctx)}, you have been removed from the Arena queue, I'll see you later")
 		await asyncio.sleep(1)
 		return None
 	else:
@@ -173,7 +173,7 @@ async def desist(ctx, *arg):
 		else:
 			c.execute('''update queue set active = 0, end_date = ? where (active = 1) and (player_mention = ?)''',(ctx.message.created_at, arg[0]))
 			conn.commit()
-			await ctx.send(f"{get_common_name(ctx)}, I have successfully desisted {arg[0]} from the Arena")
+			await ctx.send(f"{get_common_name(ctx)}, I have successfully removed {arg[0]} from the Arena queue")
 			await asyncio.sleep(1)
 			return None
 
@@ -201,7 +201,7 @@ async def list(ctx):
 	'''Lists the group currently in the queue
 	Usage: &list'''
 	ctx.send(gen_my_group(ctx))
-	c.execute('''select group_name, player_nick from queue where active = 1 order by join_date asc group by group_name''')
+	c.execute('''select group_name, player_nick from queue where active = 1 order by join_date asc''')
 	queue_list = c.fetchall()
 	if queue_list is not None:
 		await ctx.send(f"Currently, there are {len(set([i[1] for i in queue_list]))} players in {len(set([i[0] for i in queue_list]))} groups in queue:\n" + "\n".join([f"{i[1]} in group `{i[0]}`" for i in queue_list]))
@@ -227,4 +227,4 @@ async def next(ctx, *arg):
 			await ctx.send(f"I summon thee, {player[0]}. Come, and take your place in the arena")
 			await asyncio.sleep(1)
 
-bot.run('NDcyNDE3NzkzOTM0MDk4NDM1.DkhycQ.AR_VvrOwsRDm9VzB5qKR3oFqivM')
+bot.run('NDcyNDE3NzkzOTM0MDk4NDM1.DkntzA.N6aP-M1r1PnIzGwbpTz1X1a7yWk')
