@@ -78,7 +78,7 @@ async def join(ctx, *args):
 		await asyncio.sleep(1)
 		c.execute('''update queue set active = 0 where player_mention = ?''',(ctx.message.author.mention,))
 
-	# We make sure the number of joins is below 6
+	# We make sure the number of joins is below the number needed
 	c.execute('''select count(*) from queue where (player_mention = ?) and (played = 1) and (join_date > ?)''', (ctx.message.author.mention, decrement_month(timestamp)))
 	join_in_last_month = c.fetchone()[0]
 	print(join_in_last_month)
@@ -103,7 +103,14 @@ async def update(ctx, *arg):
 	c.execute('''update queue set active = 0, played = 1, end_date = ?''',(ctx.message.created_at,))
 
 @bot.command()
+async def group(ctx):
+	await ctx.send(f"{ctx.message.author.nick}, you are in group {find_my_group(ctx.message.author.mention)}")
+	await asyncio.sleep(1)
+
+@bot.command()
 async def list(ctx, *arg):
+	await ctx.send(f"{ctx.message.author.nick}, you are in group {find_my_group(ctx.message.author.mention)}")
+	await asyncio.sleep(1)
 	c.execute('''select group_name from queue where active = 1 order by join_date asc''')
 	queue_list = c.fetchall()
 	if queue_list is not None:
@@ -113,6 +120,10 @@ async def list(ctx, *arg):
 
 @bot.command()
 async def next(ctx, *arg):
+	if "Arena-Master" not in ctx.message.author.roles:
+		await ctx.send(f"I'm sorry {ctx.message.author.nick}, you must be an Arena Master to call this command")
+		await asyncio.sleep(1)
+		return None
 	c.execute('''select group_name from queue where active = 1 order by join_date asc''')
 	group = c.fetchone()
 	if group is None:
