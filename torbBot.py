@@ -204,7 +204,13 @@ async def list(ctx):
 	c.execute('''select group_name, player_nick from queue where active = 1 order by join_date asc''')
 	queue_list = c.fetchall()
 	if queue_list is not None:
-		await ctx.send(f"Currently, there are {len(set([i[1] for i in queue_list]))} players in {len(set([i[0] for i in queue_list]))} groups in queue:\n" + "\n".join([f"{i[1]} in group `{i[0]}`" for i in queue_list]))
+		ret_str = (f"Currently, there are {len(set([i[1] for i in queue_list]))} players in {len(set([i[0] for i in queue_list]))} groups in queue:" )
+		for group in set([i[0] for i in queue_list]):
+			ret_str += f"\n**{group}**:"
+			c.execute('''select player_nick from queue where (active = 1) and (group_name = ?)''',(group,))
+			for i in c.fetchall():
+				ret_str += f"\n  -{i[0]}"
+		await ctx.send(ret_str)
 		await asyncio.sleep(1)
 		return None
 
