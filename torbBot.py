@@ -11,6 +11,7 @@ conn = sqlite3.connect("queue.db")
 c = conn.cursor()
 
 c.execute('''create table if not exists queue (event_id integer primary key, group_name text, player_mention text, player_nick text, join_date text, end_date text, active integer, played integer);''')
+c.execute('''create table if not exists stats (player_mention text, ac text, max_hp text, level text, class text)''')
 conn.commit()
 
 description = '''A simple bot to handle an Arena queue'''
@@ -47,6 +48,19 @@ async def on_ready():
     print(bot.user.name)
     print(bot.user.id)
     print('------')
+
+@bot.command()
+async def stats(ctx, ac, max_hp, level, *, class_desc)
+	'''Used to record your stats
+	Usage: &stats AC max_HP level class and archetype
+	Exemple: &stats 15 21 3 Monk Way of the Open Hand'''
+	c.execute("delete from stats where player_mention = ?", (ctx.message.author.mention,))
+	c.execute("insert in stats (player_mention, ac, max_hp, level, class) values (?,?,?,?,?)",
+	(ctx.message.author.mention, ac, max_hp, level, class_desc))
+	await ctx.send(f"Very well {get_common_name(ctx)}, you now have the stats\n**AC: {ac}\nHP: {max_hp}\nLevel: {level}\nClass: {class_desc}**")
+	await async.io(1)
+
+@bot.command()
 
 @bot.command()
 async def join(ctx, *args):
