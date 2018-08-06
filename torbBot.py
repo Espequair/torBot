@@ -33,14 +33,13 @@ def decrement_month(date):
 	b[1] = f"{((int(b[1])+10)%12)+1:02}"
 	return "-".join(b) + " " + date.split(" ")[1]
 
-async def my_group(ctx):
+def gen_my_group(ctx):
 	c.execute('''select group_name from queue where (active = 1) and (player_mention = ?)''',(ctx.message.author.mention,))
 	group = c.fetchone()
 	if group is None:
-		await ctx.send(f"{get_common_name(ctx)}, you are not in a group")
+		return(f"{get_common_name(ctx)}, you are not in a group")
 	else:
-		await ctx.send(f"{get_common_name(ctx)}, you are in group `{group[0]}`")
-	await asyncio.sleep(1)
+		return(f"{get_common_name(ctx)}, you are in group `{group[0]}`")
 
 @bot.event
 async def on_ready():
@@ -195,13 +194,13 @@ async def invite(ctx, user):
 async def my_group(ctx):
 	'''Prints the group you are in
 	Usage: &group'''
-	my_group(ctx)
+	ctx.send(gen_my_group(ctx))
 
 @bot.command()
 async def list(ctx):
 	'''Lists the group currently in the queue
 	Usage: &list'''
-	my_group(ctx)
+	ctx.send(gen_my_group(ctx))
 	c.execute('''select group_name, player_nick from queue where active = 1 order by join_date asc group by group_name''')
 	queue_list = c.fetchall()
 	if queue_list is not None:
