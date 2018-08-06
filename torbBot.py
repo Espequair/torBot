@@ -10,7 +10,7 @@ MAX_PLAYERS_IN_GROUP = 4
 conn = sqlite3.connect("queue.db")
 c = conn.cursor()
 
-c.execute('''create table if not exists queue (event_id integer primary key, group_name text, player_mention text, join_date text, end_date text, active integer, played integer);''')
+c.execute('''create table if not exists queue (event_id integer primary key, group_name text, player_mention text, player_nick text, join_date text, end_date text, active integer, played integer);''')
 conn.commit()
 
 description = '''A simple bot to handle an Arena queue'''
@@ -32,10 +32,14 @@ def decrement_month(date):
 	b[1] = f"{((int(b[1])+10)%12)+1:02}"
 	return "-".join(b) + " " + date.split(" ")[1]
 
-def find_my_group(player_mention):
-	c.execute('''select group_name from queue where (active = 1) and (player_mention = ?)''',(player_mention,))
+async def my_group(ctx):
+	c.execute('''select group_name from queue where (active = 1) and (player_mention = ?)''',(ctx.message.author.mention,))
 	group = c.fetchone()
-	return None if group is None else group[0]
+	if group is None:
+		await ctx.send(f"{get_common_name(ctx)}, you are not in a group")
+	else:
+		await ctx.send(f"{get_common_name(ctx)}, you are in group `{group[0]}`")
+	await asyncio.sleep(1)
 
 @bot.event
 async def on_ready():
@@ -82,10 +86,10 @@ async def join(ctx, *args):
 		await ctx.send(f"{get_common_name(ctx)}, you were previously in group `{active_group[0]}`, you are now in group `{group_name}`")
 		await asyncio.sleep(1)
 		c.execute('''update queue set active = 0, end_date = ? where (active = 1) and(player_mention = ?)''',(ctx.message.created_at, ctx.message.author.mention,))
-		c.execute('''insert into queue (group_name, player_mention, join_date, end_date, active, played) 
+		c.execute('''insert into queue (group_name, player_mention, player_nick, join_date, end_date, active, played) 
 				values
-				(?,?,?,"0",1,0)''',
-			(group_name, ctx.message.author.mention, ctx.message.created_at))
+				(?,?,?,?,"0",1,0)''',
+			(group_name, ctx.message.author.mention, get_common_name(ctx), ctx.message.created_at))
 		conn.commit()
 		return None
 
@@ -100,11 +104,11 @@ async def join(ctx, *args):
 		return None
 
 	# Finally, we insert the value
-	c.execute('''insert into queue (group_name, player_mention, join_date, end_date, active, played) 
+	c.execute('''insert into queue (group_name, player_mention, player_nick, join_date, end_date, active, played) 
 			values
-			(?,?,?,"0",1,0)''',
-		(group_name, ctx.message.author.mention, ctx.message.created_at))
-	await ctx.send(f"{get_common_name(ctx)}, I have successfuly enrolled you in the group `{group_name}`")
+			(?,?,?,?,"0",1,0)''',
+		(group_name, ctx.message.author.mention, get_common_name(ctx), ctx.message.created_at))
+	await ctx.send(f"{get_common_name(ctx)}, I have successfuly enrolled you in the group `{group_name}`\n To invite someone, have him type `&join {group_name}`")
 	await asyncio.sleep(1)
 	conn.commit()
 
@@ -131,28 +135,21 @@ async def desist(ctx, *arg):
 			await asyncio.sleep(1)
 			return None
 
-#@bot.command()
-#async def update(ctx, *arg):
-#	c.execute('''update queue set active = 0, played = 1, end_date = ?''',(ctx.message.created_at,))
-#	conn.commit()
-
 @bot.command()
 async def group(ctx):
 	'''Prints the group you are in
 	Usage: &group'''
-	await ctx.send(f"{get_common_name(ctx)}, you are in group {find_my_group(ctx.message.author.mention)}")
-	await asyncio.sleep(1)
+	await my_group(ctx)
 
 @bot.command()
 async def list(ctx, *arg):
 	'''Lists the group currently in the queue
 	Usage: &list'''
-	await ctx.send(f"{get_common_name(ctx)}, you are in group {find_my_group(ctx.message.author.mention)}")
-	await asyncio.sleep(1)
-	c.execute('''select group_name from queue where active = 1 order by join_date asc''')
+	await my_group(ctx)
+	c.execute('''select group_name, player_nick from queue where active = 1 order by join_date asc''')
 	queue_list = c.fetchall()
 	if queue_list is not None:
-		await ctx.send(f"Currently, there are {len(queue_list)} groups in queue:\n" + "\n".join([f"`{i[0]}`" for i in queue_list]))
+		await ctx.send(f"Currently, there are {len(set([i[1] for i in queue_list]))} players in {len(set([i[0] for i in queue_list]))} groups in queue:\n" + "\n".join([f"{i[1]} in group `{i[0]}`" for i in queue_list]))
 		await asyncio.sleep(1)
 		return None
 
