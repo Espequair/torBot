@@ -131,9 +131,22 @@ async def desist(ctx, *arg):
 		else:
 			c.execute('''update queue set active = 0, end_date = ? where (active = 1) and (player_mention = ?)''',(ctx.message.created_at, arg[0]))
 			conn.commit()
-			await ctx.send(f"{get_common_name(ctx)}, I have successfully desisted {arg[0]} from the Arena, I'll see you later")
+			await ctx.send(f"{get_common_name(ctx)}, I have successfully desisted {arg[0]} from the Arena")
 			await asyncio.sleep(1)
 			return None
+
+@bot.command()
+async def invite(ctx, user):
+	'''Invites an user over to your group
+	Usage: &invite @User'''
+	c.execute('''select group_name from queue where (active = 1) and player_mention = ?''',(ctx.message.author.mention))
+	group = c.fetchone()
+	if group is None:
+		await ctx.send(f"{get_common_name(ctx)}, you are not currently in a group, you can't invite someone!")
+		await asyncio.sleep(1)
+	else:
+		await ctx.send(f"{user}, {get_common_name(ctx} has invited you to their group: `{group[0]}`\nTo join their group, type `&join {group[0]}`")
+		await asyncio.sleep(1)
 
 @bot.command()
 async def group(ctx):
@@ -142,7 +155,7 @@ async def group(ctx):
 	await my_group(ctx)
 
 @bot.command()
-async def list(ctx, *arg):
+async def list(ctx):
 	'''Lists the group currently in the queue
 	Usage: &list'''
 	await my_group(ctx)
