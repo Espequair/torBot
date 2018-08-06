@@ -74,31 +74,38 @@ async def join(ctx, *args):
 	if active_group is not None: 
 		await ctx.send(f"{ctx.message.author.nick}, you were previously in group `{active_group[0]}`, you are now in group `{group_name}`")
 		await asyncio.sleep(1)
-		c.execute('''update queue set active = 0 where player_mention = ?''',(ctx.message.author.mention,))
+		c.execute('''update queue set active = 0, end_date = ? where (active = 1) and(player_mention = ?)''',(ctx.message.created_at, ctx.message.author.mention,))
+		c.execute('''insert into queue (group_name, player_name, player_mention, join_date, end_date, active, played) 
+				values
+				(?,?,?,?,"0",1,0)''',
+			(group_name, ctx.message.author.nick, ctx.message.author.mention, ctx.message.created_at))
+		conn.commit()
+		return None
 
 	# We make sure the number of joins is below the number needed
 	c.execute('''select count(*) from queue where (player_mention = ?) and (played = 1) and (join_date > ?)''', (ctx.message.author.mention, decrement_month(timestamp)))
 	join_in_last_month = c.fetchone()[0]
-	print(join_in_last_month)
 	if join_in_last_month >= MAX_JOIN_IN_MONTH:
 		c.execute('''select join_date from queue where (player_mention = ?) and (played = 1) and (join_date > ?) Order by join_date limit 1''',(ctx.message.author.mention, decrement_month(timestamp)))
 		join = increment_month(c.fetchone()[0])
-		print(join)
 		await ctx.send(f"I'm sorry {ctx.message.author.nick}, you have joined the queue too many times this month, try again at {join}")
 		await asyncio.sleep(1)
 		return None
 
-	# Finally, we inser the value
+	# Finally, we insert the value
 	c.execute('''insert into queue (group_name, player_name, player_mention, join_date, end_date, active, played) 
 			values
 			(?,?,?,?,"0",1,0)''',
 		(group_name, ctx.message.author.nick, ctx.message.author.mention, ctx.message.created_at))
+	await ctx.send(f"{ctx.message.author.nick}, I have successfuly enrolled you in the group `{group_name}`")
+	await asyncio.sleep(1)
 	conn.commit()
 
 @bot.command()
-async def desist(ctx. *arg):
+async def desist(ctx, *arg):
 	if len(arg) == 0:
 		c.execute('''update queue set active = 0, end_date = ? where (active = 1) and (player_mention = ?)''',(ctx.message.created_at, ctx.message.author.mention))
+		conn.commit()
 		await ctx.send(f"{ctx.message.author.nick}, I have successfully desisted you from the Arena, I'll see you later")
 		await asyncio.sleep(1)
 		return None
@@ -109,6 +116,7 @@ async def desist(ctx. *arg):
 			return None
 		else:
 			c.execute('''update queue set active = 0, end_date = ? where (active = 1) and (player_mention = ?)''',(ctx.message.created_at, arg[0]))
+			conn.commit()
 			await ctx.send(f"{ctx.message.author.nick}, I have successfully desisted {arg[0]} from the Arena, I'll see you later")
 			await asyncio.sleep(1)
 			return None
@@ -116,6 +124,7 @@ async def desist(ctx. *arg):
 @bot.command()
 async def update(ctx, *arg):
 	c.execute('''update queue set active = 0, played = 1, end_date = ?''',(ctx.message.created_at,))
+	conn.commit()
 
 @bot.command()
 async def group(ctx):
@@ -148,6 +157,7 @@ async def next(ctx, *arg):
 		players = c.fetchall()
 		for player in players:
 			c.execute('''update queue set active = 0, played = 1, end_date = ? where (player_mention = ?)''', (ctx.message.created_at, player[0]))
+			conn.commit()
 			await ctx.send(f"I summon thee, {player[0]}. Come, and take your place in the arena")
 			await asyncio.sleep(1)
 
