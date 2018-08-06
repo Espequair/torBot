@@ -7,10 +7,8 @@ import sqlite3, time
 MAX_JOIN_IN_MONTH = 6
 MAX_PLAYERS_IN_GROUP = 4
 
-
 conn = sqlite3.connect("queue.db")
 c = conn.cursor()
-
 
 c.execute('''create table if not exists queue (event_id integer primary key, group_name text not null, player_name text not null, player_mention text not null, join_date text not null, end_date text not null, active integer not null, played integer not null);''')
 conn.commit()
@@ -131,6 +129,9 @@ async def next(ctx, *arg):
 	else:
 		c.execute('''select player_mention from queue where (group_name = ?) and (active = 1)''', (group[0],))
 		players = c.fetchall()
-		print(players)
+		for player in players:
+			c.execute('''update queue set active = 0, played = 1, end_date = ? where (player_mention = ?)''', (ctx.message.created_at, player))
+			await ctx.send(f"I summon thee, {player}. Come, and take your place in the arena")
+			await asyncio.sleep(1)
 
 bot.run('NDcyNDE3NzkzOTM0MDk4NDM1.DkhycQ.AR_VvrOwsRDm9VzB5qKR3oFqivM')
