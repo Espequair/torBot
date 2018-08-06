@@ -10,12 +10,15 @@ MAX_PLAYERS_IN_GROUP = 4
 conn = sqlite3.connect("queue.db")
 c = conn.cursor()
 
-c.execute('''create table if not exists queue (event_id integer primary key, group_name text not null, player_name text not null, player_mention text not null, join_date text not null, end_date text not null, active integer not null, played integer not null);''')
+c.execute('''create table if not exists queue (event_id integer primary key, group_name text, player_mention text, join_date text, end_date text, active integer, played integer);''')
 conn.commit()
 
 description = '''A simple bot to handle an Arena queue'''
 
 bot = commands.Bot(command_prefix='&', description=description)
+
+def get_common_name(ctx):
+	return ctx.message.author.nick if ctx.message.author.nick is not None else ctx.message.author.name
 
 def increment_month(date):
 	b = date.split(" ")[0].split("-")
@@ -43,9 +46,15 @@ async def on_ready():
 
 @bot.command()
 async def join(ctx, *args):
+	'''Used to join the arena queue
+
+	Usage: &join [group_name]
+
+	If no group name is given, it will default to "<your nickname>'s group"
+	If another player wants to join your group, have him type &join [your_group_name]'''
 
 	# We generate the name of the group, give it a default name if nothing was given
-	group_name = " ".join(args) if len(args) > 0 else f"{ctx.message.author.nick}'s group"
+	group_name = " ".join(args) if len(args) > 0 else f"{get_common_name(ctx)}'s group"
 
 	# We get the timestamp now to make sure it isn't thrown off by sqlite later
 	timestamp = str(ctx.message.created_at)
@@ -54,7 +63,7 @@ async def join(ctx, *args):
 	c.execute('''select group_name from queue where (player_mention = ?) and (active = 1) and (group_name = ?)''',(ctx.message.author.mention,group_name))
 	rejoin_same = c.fetchone()
 	if rejoin_same is not None:
-		await ctx.send(f"{ctx.message.author.nick}, you were already in group `{group_name}`")
+		await ctx.send(f"{get_common_name(ctx)}, you were already in group `{group_name}`")
 		await asyncio.sleep(1)
 		return None
 
@@ -62,7 +71,7 @@ async def join(ctx, *args):
 	c.execute('''select count(*) from queue where (active = 1) and (group_name = ?)''',(group_name,))
 	playercount = c.fetchone()
 	if playercount is not None and playercount[0] >= MAX_PLAYERS_IN_GROUP:
-		await ctx.send(f"I'm sorry {ctx.message.author.nick}, I'm afraid I can't let you do that, group `{group_name}` is already full")
+		await ctx.send(f"I'm sorry {get_common_name(ctx)}, I'm afraid I can't let you do that, group `{group_name}` is already full")
 		await asyncio.sleep(1)
 		return None
 
@@ -70,13 +79,13 @@ async def join(ctx, *args):
 	c.execute('''select group_name from queue where (player_mention = ?) and (active = 1) and (group_name != ?)''',(ctx.message.author.mention,group_name))
 	active_group = c.fetchone()
 	if active_group is not None: 
-		await ctx.send(f"{ctx.message.author.nick}, you were previously in group `{active_group[0]}`, you are now in group `{group_name}`")
+		await ctx.send(f"{get_common_name(ctx)}, you were previously in group `{active_group[0]}`, you are now in group `{group_name}`")
 		await asyncio.sleep(1)
 		c.execute('''update queue set active = 0, end_date = ? where (active = 1) and(player_mention = ?)''',(ctx.message.created_at, ctx.message.author.mention,))
-		c.execute('''insert into queue (group_name, player_name, player_mention, join_date, end_date, active, played) 
+		c.execute('''insert into queue (group_name, player_mention, join_date, end_date, active, played) 
 				values
-				(?,?,?,?,"0",1,0)''',
-			(group_name, ctx.message.author.nick, ctx.message.author.mention, ctx.message.created_at))
+				(?,?,?,"0",1,0)''',
+			(group_name, ctx.message.author.mention, ctx.message.created_at))
 		conn.commit()
 		return None
 
@@ -86,52 +95,59 @@ async def join(ctx, *args):
 	if join_in_last_month >= MAX_JOIN_IN_MONTH:
 		c.execute('''select join_date from queue where (player_mention = ?) and (played = 1) and (join_date > ?) Order by join_date limit 1''',(ctx.message.author.mention, decrement_month(timestamp)))
 		join = increment_month(c.fetchone()[0])
-		await ctx.send(f"I'm sorry {ctx.message.author.nick}, you have joined the queue too many times this month, try again at {join}")
+		await ctx.send(f"I'm sorry {get_common_name(ctx)}, you have joined the queue too many times this month, try again at {join}")
 		await asyncio.sleep(1)
 		return None
 
 	# Finally, we insert the value
-	c.execute('''insert into queue (group_name, player_name, player_mention, join_date, end_date, active, played) 
+	c.execute('''insert into queue (group_name, player_mention, join_date, end_date, active, played) 
 			values
-			(?,?,?,?,"0",1,0)''',
-		(group_name, ctx.message.author.nick, ctx.message.author.mention, ctx.message.created_at))
-	await ctx.send(f"{ctx.message.author.nick}, I have successfuly enrolled you in the group `{group_name}`")
+			(?,?,?,"0",1,0)''',
+		(group_name, ctx.message.author.mention, ctx.message.created_at))
+	await ctx.send(f"{get_common_name(ctx)}, I have successfuly enrolled you in the group `{group_name}`")
 	await asyncio.sleep(1)
 	conn.commit()
 
 @bot.command()
 async def desist(ctx, *arg):
+	'''Used to remove yourself from the arena queue
+
+	Usage: &desist'''
 	if len(arg) == 0:
 		c.execute('''update queue set active = 0, end_date = ? where (active = 1) and (player_mention = ?)''',(ctx.message.created_at, ctx.message.author.mention))
 		conn.commit()
-		await ctx.send(f"{ctx.message.author.nick}, I have successfully desisted you from the Arena, I'll see you later")
+		await ctx.send(f"{get_common_name(ctx)}, I have successfully desisted you from the Arena, I'll see you later")
 		await asyncio.sleep(1)
 		return None
 	else:
 		if "Admin" not in [i.name for i in ctx.message.author.roles]:
-			await ctx.send(f"I'm sorry {ctx.message.author.nick}, I'm afraid I can't let you do that, you must be an Administrator to call this command")
+			await ctx.send(f"I'm sorry {get_common_name(ctx)}, I'm afraid I can't let you do that, you must be an Administrator to call this command")
 			await asyncio.sleep(1)
 			return None
 		else:
 			c.execute('''update queue set active = 0, end_date = ? where (active = 1) and (player_mention = ?)''',(ctx.message.created_at, arg[0]))
 			conn.commit()
-			await ctx.send(f"{ctx.message.author.nick}, I have successfully desisted {arg[0]} from the Arena, I'll see you later")
+			await ctx.send(f"{get_common_name(ctx)}, I have successfully desisted {arg[0]} from the Arena, I'll see you later")
 			await asyncio.sleep(1)
 			return None
 
-@bot.command()
-async def update(ctx, *arg):
-	c.execute('''update queue set active = 0, played = 1, end_date = ?''',(ctx.message.created_at,))
-	conn.commit()
+#@bot.command()
+#async def update(ctx, *arg):
+#	c.execute('''update queue set active = 0, played = 1, end_date = ?''',(ctx.message.created_at,))
+#	conn.commit()
 
 @bot.command()
 async def group(ctx):
-	await ctx.send(f"{ctx.message.author.nick}, you are in group {find_my_group(ctx.message.author.mention)}")
+	'''Prints the group you are in
+	Usage: &group'''
+	await ctx.send(f"{get_common_name(ctx)}, you are in group {find_my_group(ctx.message.author.mention)}")
 	await asyncio.sleep(1)
 
 @bot.command()
 async def list(ctx, *arg):
-	await ctx.send(f"{ctx.message.author.nick}, you are in group {find_my_group(ctx.message.author.mention)}")
+	'''Lists the group currently in the queue
+	Usage: &list'''
+	await ctx.send(f"{get_common_name(ctx)}, you are in group {find_my_group(ctx.message.author.mention)}")
 	await asyncio.sleep(1)
 	c.execute('''select group_name from queue where active = 1 order by join_date asc''')
 	queue_list = c.fetchall()
@@ -140,10 +156,10 @@ async def list(ctx, *arg):
 		await asyncio.sleep(1)
 		return None
 
-@bot.command()
+@bot.command(hidden = True)
 async def next(ctx, *arg):
 	if "Arena-Master" not in [i.name for i in ctx.message.author.roles]:
-		await ctx.send(f"I'm sorry {ctx.message.author.nick}, I'm afraid I can't let you do that, you must be an Arena Master to call this command")
+		await ctx.send(f"I'm sorry {get_common_name(ctx)}, I'm afraid I can't let you do that, you must be an Arena Master to call this command")
 		await asyncio.sleep(1)
 		return None
 	c.execute('''select group_name from queue where active = 1 order by join_date asc''')
