@@ -5,7 +5,7 @@ import sqlite3, time
 
 # Constants
 MAX_JOIN_IN_MONTH = 6
-MAX_PLAYER_IN_GROUP = 4
+MAX_PLAYERS_IN_GROUP = 4
 
 
 conn = sqlite3.connect("queue.db")
@@ -47,12 +47,12 @@ async def on_ready():
 
 @bot.command()
 async def join(ctx, *args):
+
+	# We generate the name of the group, give it a default name if nothing was given
 	group_name = " ".join(args) if len(args) > 0 else f"{ctx.message.author.nick}'s group"
+
+	# We get the timestamp now to make sure it isn't thrown off by sqlite later
 	timestamp = str(ctx.message.created_at)
-	c.execute('''Select * from queue''')
-	rows = c.fetchall()
-	for row in rows:
-		print((row))
 
 	# If the user is already in the queue, and tries to rejoin the same group
 	c.execute('''select group_name from queue where (player_mention = ?) and (active = 1) and (group_name = ?)''',(ctx.message.author.mention,group_name))
