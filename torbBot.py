@@ -95,6 +95,23 @@ async def join(ctx, *args):
 		(group_name, ctx.message.author.nick, ctx.message.author.mention, ctx.message.created_at))
 	conn.commit()
 
+@bot.command()
+async def desist(ctx. *arg):
+	if len(arg) == 0:
+		c.execute('''update queue set active = 0, end_date = ? where (active = 1) and (player_mention = ?)''',(ctx.message.created_at, ctx.message.author.mention))
+		await ctx.send(f"{ctx.message.author.nick}, I have successfully desisted you from the Arena, I'll see you later")
+		await asyncio.sleep(1)
+		return None
+	else:
+		if "Admin" not in [i.name for i in ctx.message.author.roles]:
+			await ctx.send(f"I'm sorry {ctx.message.author.nick}, I'm afraid I can't let you do that, you must be an Administrator to call this command")
+			await asyncio.sleep(1)
+			return None
+		else:
+			c.execute('''update queue set active = 0, end_date = ? where (active = 1) and (player_mention = ?)''',(ctx.message.created_at, arg[0]))
+			await ctx.send(f"{ctx.message.author.nick}, I have successfully desisted {arg[0]} from the Arena, I'll see you later")
+			await asyncio.sleep(1)
+			return None
 
 @bot.command()
 async def update(ctx, *arg):
@@ -119,7 +136,7 @@ async def list(ctx, *arg):
 @bot.command()
 async def next(ctx, *arg):
 	if "Arena-Master" not in [i.name for i in ctx.message.author.roles]:
-		await ctx.send(f"I'm sorry {ctx.message.author.nick}, you must be an Arena Master to call this command")
+		await ctx.send(f"I'm sorry {ctx.message.author.nick}, I'm afraid I can't let you do that, you must be an Arena Master to call this command")
 		await asyncio.sleep(1)
 		return None
 	c.execute('''select group_name from queue where active = 1 order by join_date asc''')
