@@ -112,13 +112,13 @@ async def list(ctx, *arg):
 	c.execute('''select group_name from queue where active = 1 order by join_date asc''')
 	queue_list = c.fetchall()
 	if queue_list is not None:
-		await ctx.send(f"Currently, there are {len(queue_list)} groups in queue:\n" + "\n".join([i[0] for i in queue_list]))
+		await ctx.send(f"Currently, there are {len(queue_list)} groups in queue:\n" + "\n".join([f"`{i[0]}`" for i in queue_list]))
 		await asyncio.sleep(1)
 		return None
 
 @bot.command()
 async def next(ctx, *arg):
-	if "Arena-Master" not in ctx.message.author.roles:
+	if "Arena-Master" not in [i.name for i in ctx.message.author.roles]:
 		await ctx.send(f"I'm sorry {ctx.message.author.nick}, you must be an Arena Master to call this command")
 		await asyncio.sleep(1)
 		return None
@@ -130,8 +130,8 @@ async def next(ctx, *arg):
 		c.execute('''select player_mention from queue where (group_name = ?) and (active = 1)''', (group[0],))
 		players = c.fetchall()
 		for player in players:
-			c.execute('''update queue set active = 0, played = 1, end_date = ? where (player_mention = ?)''', (ctx.message.created_at, player))
-			await ctx.send(f"I summon thee, {player}. Come, and take your place in the arena")
+			c.execute('''update queue set active = 0, played = 1, end_date = ? where (player_mention = ?)''', (ctx.message.created_at, player[0]))
+			await ctx.send(f"I summon thee, {player[0]}. Come, and take your place in the arena")
 			await asyncio.sleep(1)
 
 bot.run('NDcyNDE3NzkzOTM0MDk4NDM1.DkhycQ.AR_VvrOwsRDm9VzB5qKR3oFqivM')
