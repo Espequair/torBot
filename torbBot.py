@@ -139,13 +139,13 @@ async def desist(ctx, *arg):
 async def invite(ctx, user):
 	'''Invites an user over to your group
 	Usage: &invite @User'''
-	c.execute('''select group_name from queue where (active = 1) and player_mention = ?''',(ctx.message.author.mention))
+	c.execute('''select group_name from queue where (active = 1) and player_mention = ?''',(ctx.message.author.mention,))
 	group = c.fetchone()
 	if group is None:
 		await ctx.send(f"{get_common_name(ctx)}, you are not currently in a group, you can't invite someone!")
 		await asyncio.sleep(1)
 	else:
-		await ctx.send(f"{user}, {get_common_name(ctx} has invited you to their group: `{group[0]}`\nTo join their group, type `&join {group[0]}`")
+		await ctx.send(f"{user}, {get_common_name(ctx)} has invited you to their group: `{group[0]}`\nTo join their group, type `&join {group[0]}`")
 		await asyncio.sleep(1)
 
 @bot.command()
