@@ -55,15 +55,41 @@ async def stats(ctx, ac, max_hp, level, *, class_desc):
 	Usage: &stats AC max_HP level class and archetype
 	Exemple: &stats 15 21 3 Monk Way of the Open Hand'''
 	c.execute("delete from stats where player_mention = ?", (ctx.message.author.mention,))
-	c.execute("insert in stats (player_mention, ac, max_hp, level, class) values (?,?,?,?,?)",
-	(ctx.message.author.mention, ac, max_hp, level, class_desc))
+	c.execute("insert into stats (player_mention, ac, max_hp, level, class) values (?,?,?,?,?)",(ctx.message.author.mention, ac, max_hp, level, class_desc))
+	conn.commit()
 	await ctx.send(f"Very well {get_common_name(ctx)}, you now have the stats\n**AC: {ac}\nHP: {max_hp}\nLevel: {level}\nClass: {class_desc}**")
 	await asyncio.sleep(1)
 
 @bot.command()
-async def team(ctx, team):
-	pass
+async def group_info(ctx, team = None):
+	'''Get more info about a group
+	Usage: &group_info [group]
+	this command will display the stats of the players inside the group passed
+	selecting the next group to go if no group is given'''
 
+	if team is None:
+		c.execute("select group_name from queue where active = 1 order by join_date asc")
+		team = c.fetchone()
+		if team is None:
+			await ctx.send("There doesn't seem to be a team in the queue currently")
+			await asyncio.sleep(1)
+			return None
+		team = team[0]
+	c.execute("select player_mention, player_nick from queue where active = 1 and group_name = ?",(team,))
+	players = c.fetchall()
+	if players == []:
+		await ctx.send("I'm sorry {get_common_name(ctx)}, there doesn't seem to be a team by the name of `{team}` in the queue")
+		await asyncio.sleep(1)
+		return None
+	ctx.send("The members of group {team} are:")
+	for players in players:
+		c.execute("select * from stats where player_mention = ?",(player[0]))
+		stats = c.fetchone()
+		if stats is None:
+			await ctx.send(f"{player[1]} hasn't told me their stats yet")
+		else:
+			await ctx.send(f"{player[1]} is a level {a[3]} {a[4]}\nThey have an AC of {a[1]} and their max HP is {a[1]}")
+		await asyncio.sleep(1)
 
 @bot.command()
 async def join(ctx, *args):
@@ -166,7 +192,7 @@ async def invite(ctx, user):
 		await asyncio.sleep(1)
 
 @bot.command()
-async def group(ctx):
+async def my_group(ctx):
 	'''Prints the group you are in
 	Usage: &group'''
 	await my_group(ctx)
