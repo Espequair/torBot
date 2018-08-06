@@ -50,7 +50,7 @@ async def on_ready():
     print('------')
 
 @bot.command()
-async def stats(ctx, ac, max_hp, level, *, class_desc)
+async def stats(ctx, ac, max_hp, level, *, class_desc):
 	'''Used to record your stats
 	Usage: &stats AC max_HP level class and archetype
 	Exemple: &stats 15 21 3 Monk Way of the Open Hand'''
@@ -58,9 +58,12 @@ async def stats(ctx, ac, max_hp, level, *, class_desc)
 	c.execute("insert in stats (player_mention, ac, max_hp, level, class) values (?,?,?,?,?)",
 	(ctx.message.author.mention, ac, max_hp, level, class_desc))
 	await ctx.send(f"Very well {get_common_name(ctx)}, you now have the stats\n**AC: {ac}\nHP: {max_hp}\nLevel: {level}\nClass: {class_desc}**")
-	await async.io(1)
+	await asyncio.sleep(1)
 
 @bot.command()
+async def team(ctx, team):
+	pass
+
 
 @bot.command()
 async def join(ctx, *args):
@@ -173,7 +176,7 @@ async def list(ctx):
 	'''Lists the group currently in the queue
 	Usage: &list'''
 	await my_group(ctx)
-	c.execute('''select group_name, player_nick from queue where active = 1 order by join_date asc''')
+	c.execute('''select group_name, player_nick from queue where active = 1 order by join_date asc group by group_name''')
 	queue_list = c.fetchall()
 	if queue_list is not None:
 		await ctx.send(f"Currently, there are {len(set([i[1] for i in queue_list]))} players in {len(set([i[0] for i in queue_list]))} groups in queue:\n" + "\n".join([f"{i[1]} in group `{i[0]}`" for i in queue_list]))
