@@ -13,9 +13,7 @@ c = conn.cursor()
 c.execute('''create table if not exists queue (event_id integer primary key, group_name text not null, player_name text not null, player_mention text not null, join_date text not null, end_date text not null, active integer not null, played integer not null);''')
 conn.commit()
 
-description = '''An example bot to showcase the discord.ext.commands extension
-module.
-There are a number of utility commands being showcased here.'''
+description = '''A simple bot to handle an Arena queue'''
 
 bot = commands.Bot(command_prefix='&', description=description)
 
