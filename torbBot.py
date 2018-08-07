@@ -34,12 +34,12 @@ def decrement_month(date):
 	return "-".join(b) + " " + date.split(" ")[1]
 
 def gen_my_group(ctx):
-	c.execute('''select group_name from queue where (active = 1) and (player_mention = ?)''',(ctx.message.author.mention,))
-	group = c.fetchone()
-	if group is None:
+	c.execute('''select group_name, player_nick from queue where active = 1 and group_name = (select group_name from queue where player_mention = ? and active = 1);''',(ctx.message.author.mention,))
+	data = c.fetchall()
+	if data == []:
 		return(f"{get_common_name(ctx)}, you are not in a group")
 	else:
-		return(f"{get_common_name(ctx)}, you are in group `{group[0]}`")
+		return(f"{get_common_name(ctx)}, you are in group `{data[0][0]}` with:\n"+"\n".join([f"- {i[1]}" for i in data]))
 
 @bot.event
 async def on_ready():
@@ -80,7 +80,7 @@ async def group_info(ctx, team = None):
 		await ctx.send(f"I'm sorry {get_common_name(ctx)}, there doesn't seem to be a team by the name of `{team}` in the queue")
 		await asyncio.sleep(1)
 		return None
-	await ctx.send(f"The members of group {team} are:")
+	await ctx.send(f"The members of group `{team}` are:")
 	for player in players:
 		c.execute("select * from stats where player_mention = ?",(player[0],))
 		stats = c.fetchone()
@@ -201,15 +201,29 @@ async def list(ctx):
 	'''Lists the group currently in the queue
 	Usage: &list'''
 	await ctx.send(gen_my_group(ctx))
-	c.execute('''select group_name, player_nick from queue where active = 1 order by join_date asc''')
+	c.execute('''SELECT
+		q1.player_nick,
+		q2.group_name,
+		q2.join_date
+	FROM queue AS q1
+	INNER JOIN (
+		SELECT
+			group_name,
+			MIN(join_date) AS join_date
+		FROM queue
+		WHERE active = 1 GROUP BY group_name
+	) AS q2 ON q1.group_name = q2.group_name
+	WHERE q1.active = 1
+	ORDER BY q2.join_date;''')
 	queue_list = c.fetchall()
 	if queue_list is not None:
-		ret_str = (f"Currently, there are {len(set([i[1] for i in queue_list]))} players in {len(set([i[0] for i in queue_list]))} groups in queue:" )
-		for group in set([i[0] for i in queue_list]):
-			ret_str += f"\n**{group}**:"
-			c.execute('''select player_nick from queue where (active = 1) and (group_name = ?)''',(group,))
-			for i in c.fetchall():
-				ret_str += f"\n  -{i[0]}"
+		ret_str = (f"Currently, there are {len(queue_list)} players in {len(set([i[1] for i in queue_list]))} groups in queue:" )
+		prev_group = ""
+		for (nick, group, _) in queue_list:
+			if prev_group != group:
+				ret_str += f"\n**{group}**:"
+				prev_group = group
+			ret_str += f"\n  -{nick}"
 		await ctx.send(ret_str)
 		await asyncio.sleep(1)
 		return None
@@ -220,7 +234,7 @@ async def next(ctx, *arg):
 		await ctx.send(f"I'm sorry {get_common_name(ctx)}, I'm afraid I can't let you do that, you must be an Arena Master to call this command")
 		await asyncio.sleep(1)
 		return None
-	c.execute('''select group_name from queue where active = 1 order by join_date asc''')
+	c.execute('''select group_name from queue where active = 1 and player_mention = (select player_mention from queue where active = 1 order by join_date asc limit 1)''')
 	group = c.fetchone()
 	if group is None:
 		await ctx.send("There doesn't seem to be anyone active in the queue")
