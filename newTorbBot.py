@@ -9,21 +9,62 @@ config = configparser.ConfigParser()
 config.read("bot.ini")
 bot_info = config["Bot info"]
 bot_token = bot_info.get("token")
+database_info = config["Database info"]
+database_name = database_info.get("name")
 
 # Constants
 MAX_JOIN_IN_MONTH = 6
-MAX_PLAYERS_IN_GROUP = 4
+MAX_PLAYERS_IN_team = 4
+YES_EMOJI = "\U00002705"
+NO_EMOJI = "\U000026d4"
+
+# SQL Shortcuts
+ACTIVE = "(in_queue = 1) or (in_confirm = 1) or (in_arena = 1)"
 
 conn = sqlite3.connect("queue.db")
 c = conn.cursor()
 
-c.execute('''create table if not exists queue (event_id integer primary key, group_name text, player_mention text, player_nick text, join_date text, end_date text, active integer, played integer);''')
-c.execute('''create table if not exists stats (player_mention text, ac text, max_hp text, level text, class text)''')
+c.execute('''create table if not exists queue (
+	event_id integer primary key,
+	player_mention text,
+	player_nick text,
+	in_team integer,
+	team_name text,
+	join_date text,
+	in_queue integer,
+	in_confirm integer,
+	in_arena integer,
+	played integer
+	);''')
+
+c.execute('''create table if not exists stats (
+	player_mention text unique,
+	ac text,
+	max_hp text,
+	level text,
+	class text)''')
+c.execute('''create unique index if not exists idx_player on stats(player_mention)''')
 conn.commit()
 
 description = '''A simple bot to handle an Arena queue'''
 
 bot = commands.Bot(command_prefix='&', description=description)
+
+async def bool_confirm(message, person):
+	await message.add_reaction(YES_EMOJI)
+	await message.add_reaction(NO_EMOJI)
+	while True:
+		payload = await bot.wait_for("raw_reaction_add")
+		if payload.message_id != message.id or payload.user_id != person.id or (payload.emoji.name != YES_EMOJI and payload.emoji.name != NO_EMOJI):
+			continue
+		if payload.emoji.name == YES_EMOJI:
+			ret = True
+			break
+		if payload.emoji.name == NO_EMOJI:
+			ret = False
+			break
+	await message.delete()
+	return ret
 
 def get_common_name(ctx):
 	return ctx.message.author.nick if ctx.message.author.nick is not None else ctx.message.author.name
@@ -40,13 +81,25 @@ def decrement_month(date):
 	b[1] = f"{((int(b[1])+10)%12)+1:02}"
 	return "-".join(b) + " " + date.split(" ")[1]
 
-def gen_my_group(ctx):
-	c.execute('''select group_name, player_nick from queue where active = 1 and group_name = (select group_name from queue where player_mention = ? and active = 1);''',(ctx.message.author.mention,))
+def gen_my_team(ctx):
+	c.execute('''select team_name, player_nick from queue where active = 1 and team_name = (select team_name from queue where player_mention = ? and active = 1);''',(ctx.message.author.mention,))
 	data = c.fetchall()
 	if data == []:
-		return(f"{get_common_name(ctx)}, you are not in a group")
+		return(f"{get_common_name(ctx)}, you are not in a team")
 	else:
-		return(f"{get_common_name(ctx)}, you are in group `{data[0][0]}` with:\n"+"\n".join([f"- {i[1]}" for i in data]))
+		return(f'{get_common_name(ctx)}, you are in team `{data["team_name"][0]}` with:\n'+"\n".join([f"- {i[1]}" for i in data]))
+
+async def join_queue(ctx):
+	c.execute(f"select count(*) from queue where {ACTIVE} and player_mention = ?",(ctx.message.author.mention,))
+	if c.fetchone()[0] != 0:
+		await ctx.send(f"{ctx.message.author.nick}, you are already in the queue.")
+		return
+	c.execute('''insert into queue (player_mention,	player_nick, in_team, team_name, join_date,
+			in_queue, in_confirm, in_arena, played)
+			values (?,?,0,"",?,1,1,1,0)''',
+		(ctx.message.author.mention, ctx.message.author.nick, ctx.message.created_at))
+	conn.commit()
+	await ctx.send(f"{ctx.message.author.nick}, you are now entering the arena, the Fiery Crucible in which true heroes are forged")
 
 @bot.event
 async def on_ready():
@@ -60,198 +113,116 @@ async def stats(ctx, ac, max_hp, level, *, class_desc):
 	'''Used to record your stats
 	Usage: &stats AC max_HP level class and archetype
 	Exemple: &stats 15 21 3 Monk Way of the Open Hand'''
-	c.execute("delete from stats where player_mention = ?", (ctx.message.author.mention,))
-	c.execute("insert into stats (player_mention, ac, max_hp, level, class) values (?,?,?,?,?)",(ctx.message.author.mention, ac, max_hp, level, class_desc))
+	c.execute("replace into stats (player_mention, ac, max_hp, level, class) values (?,?,?,?,?)",(ctx.message.author.mention, ac, max_hp, level, class_desc))
 	conn.commit()
 	await ctx.send(f"Very well {get_common_name(ctx)}, you now have the stats\n**AC: {ac}\nHP: {max_hp}\nLevel: {level}\nClass: {class_desc}**")
 	await asyncio.sleep(1)
 
-@bot.command(alias = ["gi"])
-async def group_info(ctx, team = None):
-	'''Get more info about a group
-	Usage: &group_info [group]
-	this command will display the stats of the players inside the group passed
-	selecting the next group to go if no group is given'''
-
-	if team is None:
-		c.execute("select group_name from queue where active = 1 order by join_date asc")
-		team = c.fetchone()
-		if team is None:
-			await ctx.send("There doesn't seem to be a team in the queue currently")
-			await asyncio.sleep(1)
-			return None
-		team = team[0]
-	c.execute("select player_mention, player_nick from queue where active = 1 and group_name = ?",(team,))
-	players = c.fetchall()
-	if players == []:
-		await ctx.send(f"I'm sorry {get_common_name(ctx)}, there doesn't seem to be a team by the name of `{team}` in the queue")
-		await asyncio.sleep(1)
-		return None
-	await ctx.send(f"The members of group `{team}` are:")
-	for player in players:
-		c.execute("select * from stats where player_mention = ?",(player[0],))
-		stats = c.fetchone()
-		if stats is None:
-			await ctx.send(f"{player[1]} hasn't told me their stats yet")
-		else:
-			await ctx.send(f"{player[1]} is a level {stats[3]} {stats[4]}\nThey have an AC of {stats[1]} and their max HP is {stats[1]}")
-		await asyncio.sleep(1)
+@bot.command()
+async def join(ctx):
+	'''Use `&join` to join the Arena Queue'''
+	await join_queue(ctx)
 
 @bot.command()
-async def join(ctx, *args):
-	'''Used to join the arena queue
-
-	Usage: &join [group_name]
-
-	If no group name is given, it will default to "<your nickname>'s group"
-	If another player wants to join your group, have him type &join [your_group_name]'''
-
-	# We generate the name of the group, give it a default name if nothing was given
-	group_name = " ".join(args) if len(args) > 0 else f"{get_common_name(ctx)}'s group"
-
-	# We get the timestamp now to make sure it isn't thrown off by sqlite later
-	timestamp = str(ctx.message.created_at)
-
-	# If the user is already in the queue, and tries to rejoin the same group
-	c.execute('''select group_name from queue where (player_mention = ?) and (active = 1) and (group_name = ?)''',(ctx.message.author.mention,group_name))
-	rejoin_same = c.fetchone()
-	if rejoin_same is not None:
-		await ctx.send(f"{get_common_name(ctx)}, you were already in group `{group_name}`")
-		await asyncio.sleep(1)
-		return None
-
-	# If the group already had 4 players, tell the player
-	c.execute('''select count(*) from queue where (active = 1) and (group_name = ?)''',(group_name,))
-	playercount = c.fetchone()
-	if playercount is not None and playercount[0] >= MAX_PLAYERS_IN_GROUP:
-		await ctx.send(f"I'm sorry {get_common_name(ctx)}, I'm afraid I can't let you do that, group `{group_name}` is already full")
-		await asyncio.sleep(1)
-		return None
-
-	# If the user is already in the queue, and tries to join a different group
-	c.execute('''select group_name from queue where (player_mention = ?) and (active = 1) and (group_name != ?)''',(ctx.message.author.mention,group_name))
-	active_group = c.fetchone()
-	if active_group is not None: 
-		await ctx.send(f"{get_common_name(ctx)}, you were previously in group `{active_group[0]}`, you are now in group `{group_name}`")
-		await asyncio.sleep(1)
-		c.execute('''update queue set active = 0, end_date = ? where (active = 1) and(player_mention = ?)''',(ctx.message.created_at, ctx.message.author.mention,))
-		c.execute('''insert into queue (group_name, player_mention, player_nick, join_date, end_date, active, played) 
-				values
-				(?,?,?,?,"0",1,0)''',
-			(group_name, ctx.message.author.mention, get_common_name(ctx), ctx.message.created_at))
+async def leave(ctx):
+	'''Use `&leave` to leave the Arena Queue'''
+	message = await ctx.send(f"{ctx.message.author.nick}, are you sure you want to leave the queue?")
+	leave = await bool_confirm(message, ctx.message.author)
+	if leave:
+		c.execute("update queue set in_queue = 0, in_confirm = 0, in_arena = 0 where player_mention = ?",(ctx.message.author.mention,))
 		conn.commit()
-		return None
-
-	# We make sure the number of joins is below the number needed
-	c.execute('''select count(*) from queue where (player_mention = ?) and (played = 1) and (join_date > ?)''', (ctx.message.author.mention, decrement_month(timestamp)))
-	join_in_last_month = c.fetchone()[0]
-	if join_in_last_month >= MAX_JOIN_IN_MONTH:
-		c.execute('''select join_date from queue where (player_mention = ?) and (played = 1) and (join_date > ?) Order by join_date limit 1''',(ctx.message.author.mention, decrement_month(timestamp)))
-		join = increment_month(c.fetchone()[0])
-		await ctx.send(f"I'm sorry {get_common_name(ctx)}, you have joined the queue too many times this month, try again at {join}")
-		await asyncio.sleep(1)
-		return None
-
-	# Finally, we insert the value
-	c.execute('''insert into queue (group_name, player_mention, player_nick, join_date, end_date, active, played) 
-			values
-			(?,?,?,?,"0",1,0)''',
-		(group_name, ctx.message.author.mention, get_common_name(ctx), ctx.message.created_at))
-	await ctx.send(f"{get_common_name(ctx)}, I have successfuly enrolled you in the group `{group_name}`\n To invite someone, have him type `&join {group_name}`")
-	await asyncio.sleep(1)
-	conn.commit()
-
-@bot.command()
-async def desist(ctx, *arg):
-	'''Used to remove yourself from the arena queue
-
-	Usage: &desist'''
-	if len(arg) == 0:
-		c.execute('''update queue set active = 0, end_date = ? where (active = 1) and (player_mention = ?)''',(ctx.message.created_at, ctx.message.author.mention))
-		conn.commit()
-		await ctx.send(f"{get_common_name(ctx)}, you have been removed from the Arena queue, I'll see you later")
-		await asyncio.sleep(1)
-		return None
+		await ctx.send(f"Sad to see you go {ctx.message.author.nick}, come back soon!")
 	else:
-		if "Admin" not in [i.name for i in ctx.message.author.roles]:
-			await ctx.send(f"I'm sorry {get_common_name(ctx)}, I'm afraid I can't let you do that, you must be an Administrator to call this command")
-			await asyncio.sleep(1)
-			return None
-		else:
-			c.execute('''update queue set active = 0, end_date = ? where (active = 1) and (player_mention = ?)''',(ctx.message.created_at, arg[0]))
-			conn.commit()
-			await ctx.send(f"{get_common_name(ctx)}, I have successfully removed {arg[0]} from the Arena queue")
-			await asyncio.sleep(1)
-			return None
+		await ctx.send(f"Glad you've decided to stay with us {ctx.message.author.nick}")
 
-@bot.command()
+@bot.group()
+async def team(ctx):
+	'''You have reached the team commands. You can use:
+	`&team create [team name]` to create a team.
+	`&team invite <@User>` to invite someone to your team.
+	`&team join <team_name> to join a team`
+	`&team leave` to leave the team you are in.
+	`&team info [team name]` to list who is in a team, use `&team info` to see your own team
+	`&team stats [team name]` to see the stats of a team's members, use `&team stats` to see the stats of the next team in the arena
+	`&team list` to see all teams, and their current states'''
+
+	if ctx.invoked_subcommand is None:
+		if ctx.subcommand_passed is None:
+			await ctx.send("You have called `team` without a subcommand, try calling `!help team` for a list of subcommands")
+		else:
+			await ctx.send(f"The command `&team {ctx.subcommand_passed}` wasn't recognized, did you mistype?")
+		return
+
+@team.command()
+async def create(ctx,*, team_name=None):
+	'''Use `&team create [team_name]` to create a team
+
+	`team_name` must not not be used by an active team
+	If no team_name is given, it will be given the name `your_name's team`'''
+	await ctx.send(f"Created team `{team_name}`")
+
+@team.command()
 async def invite(ctx, user):
-	'''Invites an user over to your group
-	Usage: &invite @User'''
-	c.execute('''select group_name from queue where (active = 1) and player_mention = ?''',(ctx.message.author.mention,))
-	group = c.fetchone()
-	if group is None:
-		await ctx.send(f"{get_common_name(ctx)}, you are not currently in a group, you can't invite someone!")
-		await asyncio.sleep(1)
-	else:
-		await ctx.send(f"{user}, {get_common_name(ctx)} has invited you to their group: `{group[0]}`\nTo join their group, type `&join {group[0]}`")
-		await asyncio.sleep(1)
+	'''Use `&team invite <@User>` to invite someone
 
-@bot.command()
-async def my_group(ctx):
-	'''Prints the group you are in
-	Usage: &group'''
-	await ctx.send(gen_my_group(ctx))
+	THey will see a confirmation dialogue. If they confirm, they will join your group if there's room left'''
+	pass
 
-@bot.command()
+@team.command()
+async def join(ctx):
+	'''Use `&team join <group_name>` to join the team `team_name`
+
+	If the team is full, you will be denied.
+	If the team doesn't exist, it will offer you to create it.'''
+	pass
+
+@team.command()
+async def leave(ctx):
+	'''Use `&team leave` to leave your current group
+
+	This will will prompt a confirmation dialogue
+	You will join the queue as a filler at the time you started'''
+	pass
+
+@team.command()
+async def info(ctx, *, team_name=None):
+	'''Use `&team info [group_name]` to see info on a group
+
+	If you don't pass a group_name, it will give info on the group you are in
+	If you are a filler, this will do nothing'''
+	pass
+
+@team.command()
+async def stats(ctx, *, team_name=None):
+	'''Use `&team stats [group_name]` to see stats of a group'''
+	pass
+
+@team.command()
 async def list(ctx):
-	'''Lists the group currently in the queue
-	Usage: &list'''
-	await ctx.send(gen_my_group(ctx))
-	c.execute('''SELECT
-		q1.player_nick,
-		q2.group_name,
-		q2.join_date
-	FROM queue AS q1
-	INNER JOIN (
-		SELECT
-			group_name,
-			MIN(join_date) AS join_date
-		FROM queue
-		WHERE active = 1 GROUP BY group_name
-	) AS q2 ON q1.group_name = q2.group_name
-	WHERE q1.active = 1
-	ORDER BY q2.join_date;''')
-	queue_list = c.fetchall()
-	if queue_list is not None:
-		ret_str = (f"Currently, there are {len(queue_list)} players in {len(set([i[1] for i in queue_list]))} groups in queue:" )
-		prev_group = ""
-		for (nick, group, _) in queue_list:
-			if prev_group != group:
-				ret_str += f"\n**{group}**:"
-				prev_group = group
-			ret_str += f"\n  -{nick}"
-		await ctx.send(ret_str)
-		await asyncio.sleep(1)
-		return None
+	'''Use `&team list` to see all groups and their current status'''
+	pass
 
-@bot.command(hidden = True)
-async def next(ctx, *arg):
-	if "Arena-Master" not in [i.name for i in ctx.message.author.roles]:
-		await ctx.send(f"I'm sorry {get_common_name(ctx)}, I'm afraid I can't let you do that, you must be an Arena Master to call this command")
-		await asyncio.sleep(1)
-		return None
-	c.execute('''select group_name from queue where active = 1 and player_mention = (select player_mention from queue where active = 1 order by join_date asc limit 1)''')
-	group = c.fetchone()
-	if group is None:
-		await ctx.send("There doesn't seem to be anyone active in the queue")
-	else:
-		c.execute('''select player_mention from queue where (group_name = ?) and (active = 1)''', (group[0],))
-		players = c.fetchall()
-		for player in players:
-			c.execute('''update queue set active = 0, played = 1, end_date = ? where (player_mention = ?)''', (ctx.message.created_at, player[0]))
-			conn.commit()
-			await ctx.send(f"I summon thee, {player[0]}. Come, and take your place in the arena")
-			await asyncio.sleep(1)
+@bot.command()
+@commands.has_role("Admin")
+async def kick(ctx, player):
+	'''(Admin Only) Kicks a player from the queue'''
+	pass
+
+@bot.command()
+@commands.has_role("Admin")
+async def ban(ctx, user, days):
+	'''(Admin Only) Bans a player from the queue, use a negative number of days for a permanent ban'''
+	pass
+
+@bot.command()
+@commands.has_role("Arena-Master")
+async def next(ctx, user, days):
+	'''(Arena-Master Only) Calls the next group up'''
+	pass
+
+@bot.command()
+async def func(ctx):
+	msg = await ctx.send("You sure?")
+	await confirm(msg, ctx.message.author)
 
 bot.run(bot_token)
