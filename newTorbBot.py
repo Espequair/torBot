@@ -15,48 +15,69 @@ database_name = database_info.get("name")
 # Constants
 MAX_JOIN_IN_MONTH = 6
 MAX_PLAYERS_IN_team = 4
+GROUP_CONFIRM_TIMEOUT = 60 * 60 * 12
+GROUP_CONFIRM_MAX_ATTEMPTS = 4
 YES_EMOJI = "\U00002705"
-NO_EMOJI = "\U000026d4"
-
-# SQL Shortcuts
-ACTIVE = "(in_queue = 1) or (in_confirm = 1) or (in_arena = 1)"
+NO_EMOJI = "\U0000274c"
 
 conn = sqlite3.connect("queue.db")
 c = conn.cursor()
 
 c.execute('''create table if not exists queue (
 	event_id integer primary key,
-	player_mention text,
+	player_mention text unique,
 	player_nick text,
 	in_team integer,
 	team_name text,
 	join_date text,
-	in_queue integer,
-	in_confirm integer,
-	in_arena integer,
-	played integer
-	);''')
-
-c.execute('''create table if not exists stats (
-	player_mention text unique,
+	state integer,
+	played integer,
 	ac text,
-	max_hp text,
-	level text,
-	class text)''')
-c.execute('''create unique index if not exists idx_player on stats(player_mention)''')
+	max_hp integer,
+	level integer,
+	class text
+	);''') 
+
+	# State = 0 : Not involved in the Arena
+	# State = 1 : In queue
+	# State = 2 : In confirmation
+	# State = 3 : In arena
+	# State = 4 : In holding pattern
+
+c.execute('''create unique index if not exists idx_player on queue(player_mention)''')
+
+c.execute('''create table if not exists records (
+	player_mention text,
+	join_date text)''')
+
 conn.commit()
 
 description = '''A simple bot to handle an Arena queue'''
 
 bot = commands.Bot(command_prefix='&', description=description)
 
-async def bool_confirm(message, person):
+def update_nick(ctx):
+	'''A function to update the nicknames of a player'''
+	c.execute("update queue set player_nick = ? where player_mention = ?", (ctx.message.author.nick,ctx.message.author.nick))
+	conn.commit()
+
+def hat_check(message, person, emojis = None):
+	'''A sweet function that returns a predicate for the confirmation checks'''
+	def check(payload):
+		return payload.message_id == message.id and payload.user_id == person.id and (True if emojis is None else payload.emoji.name in emojis)
+	return check
+
+async def bool_confirm(ctx, message_text, timeout=None):
+	person = ctx.message.author
+	message = await ctx.send(message_text)
 	await message.add_reaction(YES_EMOJI)
 	await message.add_reaction(NO_EMOJI)
 	while True:
-		payload = await bot.wait_for("raw_reaction_add")
-		if payload.message_id != message.id or payload.user_id != person.id or (payload.emoji.name != YES_EMOJI and payload.emoji.name != NO_EMOJI):
-			continue
+		try:
+			payload = await bot.wait_for("raw_reaction_add",timeout = 60,check = hat_check(message, person, [YES_EMOJI, NO_EMOJI]))
+		except asyncio.TimeoutError:
+			ret = False
+			break
 		if payload.emoji.name == YES_EMOJI:
 			ret = True
 			break
@@ -66,16 +87,38 @@ async def bool_confirm(message, person):
 	await message.delete()
 	return ret
 
+async def confirm_join(ctx, message_text):
+	shorcuts = [
+		"first", "second", "third","fourth and last"]
+	person = ctx.message.author
+	i = 0
+	while i < CONFIRM_GROUP_MAX_ATTEMPTS:
+		message = await ctx.send(message_text+f"\nThis is my {shortcuts[i]} attempt at contacting you.")
+		await message.react(YES_EMOJI)
+
+		try:
+			payload = await wait_for("raw_reaction_add", timeout = CONFIRM_GROUP_TIMEOUT, check = hat_check(message, person))
+		except asyncio.TimeoutError:
+			i+=1
+			continue
+
+		if payload.emoji.name == YES_EMOJI:
+			ret = True
+			break
+
 def get_common_name(ctx):
+	'''Usually you need the nick, but if the user doesn't have one, it will return None, this fixes that'''
 	return ctx.message.author.nick if ctx.message.author.nick is not None else ctx.message.author.name
 
 def increment_month(date):
+	'''Kinda hacky, but it adds one month to a datetime'''
 	b = date.split(" ")[0].split("-")
 	b[0] = str(int(b[0]) + int(1 if b[1] == "12" else 0))
 	b[1] = f"{(int(b[1])%12+1):02}"
 	return "-".join(b) + " " + date.split(" ")[1]
 
 def decrement_month(date):
+	'''Kinda hacky, but it removes a month from a datetime'''
 	b = date.split(" ")[0].split("-")
 	b[0] = str(int(b[0]) - int(1 if b[1] == "01" else 0))
 	b[1] = f"{((int(b[1])+10)%12)+1:02}"
@@ -90,16 +133,30 @@ def gen_my_team(ctx):
 		return(f'{get_common_name(ctx)}, you are in team `{data["team_name"][0]}` with:\n'+"\n".join([f"- {i[1]}" for i in data]))
 
 async def join_queue(ctx):
-	c.execute(f"select count(*) from queue where {ACTIVE} and player_mention = ?",(ctx.message.author.mention,))
+	c.execute(f"select count(*) from queue where state > 0 and player_mention = ?",(ctx.message.author.mention,))
 	if c.fetchone()[0] != 0:
-		await ctx.send(f"{ctx.message.author.nick}, you are already in the queue.")
+		await ctx.send(f"{get_common_name(ctx)}, you are already in the queue.")
 		return
-	c.execute('''insert into queue (player_mention,	player_nick, in_team, team_name, join_date,
-			in_queue, in_confirm, in_arena, played)
-			values (?,?,0,"",?,1,1,1,0)''',
-		(ctx.message.author.mention, ctx.message.author.nick, ctx.message.created_at))
+	c.execute(f"select count(*),min(join_date) from records where player_mention = ? and join_date > ?", (ctx.message.author.mention, decrement_month(str(ctx.message.created_at))))
+	result = c.fetchone()
+	if result[0] > 6:
+		await ctx.send(f"{get_common_name(ctx)}, you have joined the Arena too many times this month, try again on {increment_month(result[1])}")
+	c.execute('''replace into queue (player_mention, player_nick, in_team, team_name, join_date,
+			state)
+			values (?,?,0,"",?,1)''',
+		(ctx.message.author.mention, ctx.message.author.nick, str(ctx.message.created_at)))
 	conn.commit()
-	await ctx.send(f"{ctx.message.author.nick}, you are now entering the arena, the Fiery Crucible in which true heroes are forged")
+	await ctx.send(f"{get_common_name(ctx)}, you are now entering the arena, the fiery crucible in which the only true heroes are forged")
+
+def leave_queue(player):
+	c.execute('update queue set state = 0, in_team = 0, team_name = "" where player_mention = ?',(player,))
+	conn.commit()
+
+def add_to_record(player_mention, join_date):
+	c.execute(f"insert into records (player_mention, join_date) values {player_mention}, {join_date}")
+	conn.commit()
+
+
 
 @bot.event
 async def on_ready():
@@ -109,11 +166,14 @@ async def on_ready():
     print('------')
 
 @bot.command()
-async def stats(ctx, ac, max_hp, level, *, class_desc):
+async def stats(ctx, ac = None, max_hp = None, level = None, *, class_desc = None):
 	'''Used to record your stats
 	Usage: &stats AC max_HP level class and archetype
 	Exemple: &stats 15 21 3 Monk Way of the Open Hand'''
-	c.execute("replace into stats (player_mention, ac, max_hp, level, class) values (?,?,?,?,?)",(ctx.message.author.mention, ac, max_hp, level, class_desc))
+	c.execute("select ac, max_hp, level, class from queue where player_mention = ?",(ctx.message.author.mention,))
+	row = c.fetchone()
+	ac = 0 if ac is None else ac
+	c.execute("replace into queue (player_mention, ac, max_hp, level, class) values (?,?,?,?,?)",(ctx.message.author.mention, ac, max_hp, level, class_desc))
 	conn.commit()
 	await ctx.send(f"Very well {get_common_name(ctx)}, you now have the stats\n**AC: {ac}\nHP: {max_hp}\nLevel: {level}\nClass: {class_desc}**")
 	await asyncio.sleep(1)
@@ -126,14 +186,12 @@ async def join(ctx):
 @bot.command()
 async def leave(ctx):
 	'''Use `&leave` to leave the Arena Queue'''
-	message = await ctx.send(f"{ctx.message.author.nick}, are you sure you want to leave the queue?")
-	leave = await bool_confirm(message, ctx.message.author)
+	leave = await bool_confirm(ctx, f"{get_common_name(ctx)}, are you sure you want to leave the queue?")
 	if leave:
-		c.execute("update queue set in_queue = 0, in_confirm = 0, in_arena = 0 where player_mention = ?",(ctx.message.author.mention,))
-		conn.commit()
-		await ctx.send(f"Sad to see you go {ctx.message.author.nick}, come back soon!")
+		leave_queue(ctx.message.author.mention)
+		await ctx.send(f"Sad to see you go {get_common_name(ctx)}, come back soon!")
 	else:
-		await ctx.send(f"Glad you've decided to stay with us {ctx.message.author.nick}")
+		await ctx.send(f"Glad you've decided to stay with us {get_common_name(ctx)}")
 
 @bot.group()
 async def team(ctx):
@@ -200,7 +258,7 @@ async def stats(ctx, *, team_name=None):
 @team.command()
 async def list(ctx):
 	'''Use `&team list` to see all groups and their current status'''
-	pass
+	c.execute("select nic")
 
 @bot.command()
 @commands.has_role("Admin")
