@@ -186,8 +186,8 @@ async def join(ctx):
 @bot.command()
 async def leave(ctx):
 	'''Use `&leave` to leave the Arena Queue'''
-	leave = await bool_confirm(ctx, f"{get_common_name(ctx)}, are you sure you want to leave the queue?")
-	if leave:
+	confirmed = await bool_confirm(ctx, f"{get_common_name(ctx)}, are you sure you want to leave the queue?")
+	if confirmed:
 		leave_queue(ctx.message.author.mention)
 		await ctx.send(f"Sad to see you go {get_common_name(ctx)}, come back soon!")
 	else:
@@ -258,25 +258,46 @@ async def stats(ctx, *, team_name=None):
 @team.command()
 async def list(ctx):
 	'''Use `&team list` to see all groups and their current status'''
-	c.execute("select nic")
+	states_array = ["INVALID", "In Queue", "In Confirmation", "In Arena", "In Holding Pattern"]
+	c.execute("select player_nick, in_team, team_name, state from queue where state > 0 group by state, in_team, team_name")
+	players = c.fetchall()
+	prev_in_team, prev_team_name, prev_state = 1, None, None
+	for player in players:
+		player_nick, in_team, team_name, state = player
+		if prev_state != state:
+			await ctx.send(f"__**{states_array()}**__")
+		if prev_in_team == 1 and in_team == 0:
+			await ctx.state(f"  -*Fillers*")
+		elif prev_team_name != team_name:
+			await ctx.state(f"  -Team: *{team_name}*")
+		await ctx.send(f"    -{player_nick}")
+		prev_in_team, prev_team_name, prev_state = in_team, team_name, state
 
 @bot.command()
 @commands.has_role("Admin")
-async def kick(ctx, player):
+async def kick(ctx, player, *, reason = None):
 	'''(Admin Only) Kicks a player from the queue'''
-	pass
+	confirmed = await bool_confirm(ctx, f"{get_common_name(ctx)}, are you sure you want to kick {player} out of the queue?")
+	if confirmed:
+		leave_queue(player)
+		await ctx.send(f"{player}, you have been kicked out of the queue{'' if reason is None else ('For the following reason: '+reason)}")
+
 
 @bot.command()
 @commands.has_role("Admin")
-async def ban(ctx, user, days):
+async def ban(ctx, user, days, *, reasons):
 	'''(Admin Only) Bans a player from the queue, use a negative number of days for a permanent ban'''
-	pass
+	confirmed = await bool_confirm(ctx, f"{get_common_name(ctx)}, are you sure you want to ban {player} for {}")
+	if confirmed:
+		leave_queue(player)
+		await ctx.send(f"{player}, you have been banned for{f' {days} days' if days is not None else 'ever'}{'' if reason is None else ('For the following reason: '+reason)}")
+
 
 @bot.command()
 @commands.has_role("Arena-Master")
 async def next(ctx, user, days):
 	'''(Arena-Master Only) Calls the next group up'''
-	pass
+
 
 @bot.command()
 async def func(ctx):
